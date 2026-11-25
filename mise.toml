@@ -1,0 +1,16 @@
+[tools]
+rust = "stable"
+# Phase 3-A フロントエンド開発開始時にコメント解除
+# node = "22"
+# pnpm = "latest"
+
+[env]
+RUSTUP_HOME = "{{config_root}}/.local/rustup"
+CARGO_HOME = "{{config_root}}/.local/cargo"
+PNPM_HOME = "{{config_root}}/.local/pnpm"
+npm_config_store_dir = "{{config_root}}/.local/pnpm-store"
+npm_config_cache = "{{config_root}}/.local/npm-cache"
+_.path = [
+  "{{config_root}}/.local/cargo/bin",
+  "{{config_root}}/.local/mingw64/bin",
+]
