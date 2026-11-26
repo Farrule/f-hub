@@ -1,0 +1,9 @@
+{
+  "rust-analyzer.linkedProjects": ["src-backend/Cargo.toml"],
+  "rust-analyzer.server.extraEnv": {
+    "RUSTUP_HOME": "${workspaceFolder}/.local/rustup",
+    "CARGO_HOME": "${workspaceFolder}/.local/cargo",
+    "RUSTUP_TOOLCHAIN": "stable",
+    "Path": "${workspaceFolder}/.local/cargo/bin;${workspaceFolder}/.local/mingw64/bin;${env:Path}"
+  }
+}
