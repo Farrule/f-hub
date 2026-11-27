@@ -16,7 +16,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// 登録デバイスの接続状態一覧を表示
+    /// 登録デバイスの接続状態と対応機能一覧を表示
     List {
         /// JSON 形式で出力
         #[arg(long)]
@@ -28,9 +28,9 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// 指定デバイスのプロファイル / レイヤーを切替
+    /// 指定デバイスのプロファイルを切替
     Profile {
-        /// デバイスID（例: pulsar, m6-8k, nape-pro, luminkey, hyzen）
+        /// デバイスID（例: pulsar, m6-8k, hyzen）
         device: String,
         /// 切替先スロット番号
         slot: u8,
@@ -55,6 +55,32 @@ struct BatteryEntry {
     mode: ConnectionMode,
     battery: Option<BatteryInfo>,
     error: Option<String>,
+}
+
+/// 全角を幅2、半角を幅1として左寄せパディングする
+fn pad_cell(s: &str, width: usize) -> String {
+    let display_width: usize = s.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum();
+    if display_width >= width {
+        s.to_string()
+    } else {
+        format!("{s}{}", " ".repeat(width - display_width))
+    }
+}
+
+fn format_profile_cap(caps: &Capabilities) -> String {
+    match (caps.profile, caps.profile_slots) {
+        (true, Some((min, max))) => format!("{min}..{max}"),
+        (true, None) => "可".to_string(),
+        (false, _) => "-".to_string(),
+    }
+}
+
+fn format_remap_cap(caps: &Capabilities) -> &'static str {
+    match (caps.remap, caps.wired_only_control) {
+        (true, true) => "有線のみ",
+        (true, false) => "可",
+        (false, _) => "-",
+    }
 }
 
 fn cmd_list(api: &HidApi, as_json: bool) {
@@ -84,18 +110,27 @@ fn cmd_list(api: &HidApi, as_json: bool) {
     }
 
     println!(
-        "{:<10} {:<22} {:<10} {:<8} {:<11} {}",
-        "ID", "Device", "Kind", "Mode", "VID:PID", "Product"
+        "{} {} {} {} {} {} {} {}",
+        pad_cell("ID", 10),
+        pad_cell("Device", 22),
+        pad_cell("Kind", 10),
+        pad_cell("Mode", 8),
+        pad_cell("VID:PID", 11),
+        pad_cell("Profile", 8),
+        pad_cell("Remap", 10),
+        "Product"
     );
-    println!("{}", "-".repeat(86));
+    println!("{}", "-".repeat(104));
     for e in entries {
         println!(
-            "{:<10} {:<22} {:<10} {:<8} {:<11} {}",
-            e.id,
-            e.name,
-            e.kind,
-            e.mode,
-            e.vid_pid.as_deref().unwrap_or("-"),
+            "{} {} {} {} {} {} {} {}",
+            pad_cell(e.id, 10),
+            pad_cell(e.name, 22),
+            pad_cell(&e.kind.to_string(), 10),
+            pad_cell(&e.mode.to_string(), 8),
+            pad_cell(e.vid_pid.as_deref().unwrap_or("-"), 11),
+            pad_cell(&format_profile_cap(&e.capabilities), 8),
+            pad_cell(format_remap_cap(&e.capabilities), 10),
             e.product_name.as_deref().unwrap_or("-"),
         );
     }
@@ -149,8 +184,13 @@ fn cmd_battery(api: &HidApi, as_json: bool) {
     }
 
     println!(
-        "{:<10} {:<22} {:<8} {:<8} {:<14} {}",
-        "ID", "Device", "Mode", "Level", "State", "Note"
+        "{} {} {} {} {} {}",
+        pad_cell("ID", 10),
+        pad_cell("Device", 22),
+        pad_cell("Mode", 8),
+        pad_cell("Level", 8),
+        pad_cell("State", 14),
+        "Note"
     );
     println!("{}", "-".repeat(82));
     for e in entries {
@@ -165,19 +205,24 @@ fn cmd_battery(api: &HidApi, as_json: bool) {
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| "-".to_string());
                 println!(
-                    "{:<10} {:<22} {:<8} {:<8} {:<14} {}",
-                    e.id,
-                    e.name,
-                    e.mode,
-                    level,
-                    state,
+                    "{} {} {} {} {} {}",
+                    pad_cell(e.id, 10),
+                    pad_cell(e.name, 22),
+                    pad_cell(&e.mode.to_string(), 8),
+                    pad_cell(&level, 8),
+                    pad_cell(&state, 14),
                     b.note.as_deref().unwrap_or("-"),
                 );
             }
             (None, Some(err)) => {
                 println!(
-                    "{:<10} {:<22} {:<8} {:<8} {:<14} {}",
-                    e.id, e.name, e.mode, "-", "-", err
+                    "{} {} {} {} {} {}",
+                    pad_cell(e.id, 10),
+                    pad_cell(e.name, 22),
+                    pad_cell(&e.mode.to_string(), 8),
+                    pad_cell("-", 8),
+                    pad_cell("-", 14),
+                    err
                 );
             }
             _ => {}
@@ -194,6 +239,31 @@ fn cmd_profile(api: &HidApi, device_id: &str, slot: u8) {
         );
         std::process::exit(1);
     };
+
+    let caps = drv.capabilities();
+    if !caps.profile {
+        let supported: Vec<_> = devices::all_drivers()
+            .into_iter()
+            .filter(|d| d.capabilities().profile)
+            .map(|d| d.id())
+            .collect();
+        eprintln!(
+            "{} はプロファイル切替に非対応です（対応デバイス: {}）",
+            drv.name(),
+            supported.join(", ")
+        );
+        std::process::exit(1);
+    }
+
+    if let Some((min, max)) = caps.profile_slots {
+        if !(min..=max).contains(&slot) {
+            eprintln!(
+                "{} のプロファイル番号は {min}〜{max} の範囲で指定してください",
+                drv.name()
+            );
+            std::process::exit(1);
+        }
+    }
 
     match drv.switch_profile(api, slot) {
         Ok(res) => println!("{} -> slot {}: {}", drv.name(), res.slot, res.message),

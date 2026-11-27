@@ -47,7 +47,10 @@ impl DeviceDriver for LuminkeyNovaKine {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             battery: false,
-            profile: true,
+            profile: false,
+            profile_slots: None,
+            remap: true,
+            wired_only_control: true,
         }
     }
 

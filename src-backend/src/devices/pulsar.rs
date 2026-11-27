@@ -75,6 +75,9 @@ impl DeviceDriver for PulsarFeinmannF01 {
         Capabilities {
             battery: true,
             profile: true,
+            profile_slots: Some((1, 6)),
+            remap: true,
+            wired_only_control: false,
         }
     }
 
@@ -116,10 +119,14 @@ impl DeviceDriver for PulsarFeinmannF01 {
         })
     }
 
-        fn switch_profile(&self, api: &HidApi, slot: u8) -> Result<crate::model::ProfileResult, DeviceError> {
-        if !(1..=4).contains(&slot) {
+    fn switch_profile(
+        &self,
+        api: &HidApi,
+        slot: u8,
+    ) -> Result<crate::model::ProfileResult, DeviceError> {
+        if !(1..=6).contains(&slot) {
             return Err(DeviceError::Communication(
-                "Pulsar のプロファイル番号は 1〜4 を指定してください".to_string(),
+                "Pulsar のプロファイル番号は 1〜6 を指定してください".to_string(),
             ));
         }
         let info = Self::find_info(api).ok_or(DeviceError::Disconnected)?;

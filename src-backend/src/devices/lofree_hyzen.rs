@@ -70,6 +70,9 @@ impl DeviceDriver for LofreeHyzen {
         Capabilities {
             battery: true,
             profile: true,
+            profile_slots: Some((0, 6)),
+            remap: true,
+            wired_only_control: false,
         }
     }
 

@@ -51,6 +51,9 @@ impl DeviceDriver for KeychronM68k {
         Capabilities {
             battery: true,
             profile: true,
+            profile_slots: Some((1, 5)),
+            remap: true,
+            wired_only_control: false,
         }
     }
 
@@ -111,10 +114,14 @@ impl DeviceDriver for KeychronM68k {
         }
     }
 
-    fn switch_profile(&self, api: &HidApi, slot: u8) -> Result<crate::model::ProfileResult, DeviceError> {
-        if !(1..=2).contains(&slot) {
+    fn switch_profile(
+        &self,
+        api: &HidApi,
+        slot: u8,
+    ) -> Result<crate::model::ProfileResult, DeviceError> {
+        if !(1..=5).contains(&slot) {
             return Err(DeviceError::Communication(
-                "M6 8K のプロファイル番号は 1〜2 を指定してください".to_string(),
+                "M6 8K のプロファイル番号は 1〜5 を指定してください".to_string(),
             ));
         }
         let (info, _) = Self::find_info(api).ok_or(DeviceError::Disconnected)?;

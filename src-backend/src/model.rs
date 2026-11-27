@@ -62,6 +62,12 @@ impl fmt::Display for ChargingState {
 pub struct Capabilities {
     pub battery: bool,
     pub profile: bool,
+    /// プロファイル切替対応時の有効スロット範囲 (min, max)
+    pub profile_slots: Option<(u8, u8)>,
+    /// Phase 3-B: キー／ボタンリマップ対応可否
+    pub remap: bool,
+    /// 制御・リマップに有線接続が必要な場合 true（例: LUMINKEY NOVA KINE）
+    pub wired_only_control: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

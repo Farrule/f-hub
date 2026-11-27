@@ -38,7 +38,10 @@ impl DeviceDriver for KeychronNapePro {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             battery: true,
-            profile: true,
+            profile: false,
+            profile_slots: None,
+            remap: true,
+            wired_only_control: false,
         }
     }
 
