@@ -1,4 +1,5 @@
 mod api;
+mod assets;
 
 use crate::daemon::state::DaemonHandle;
 use axum::routing::{get, post};
@@ -7,7 +8,7 @@ use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-/// 127.0.0.1:<port> へバインドする（ポート競合時は即座にエラー返却）
+/// 127.0.0.1 の指定ポートへバインドする（ポート競合時は即座にエラー返却）
 pub async fn bind(port: u16) -> Result<TcpListener, String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     TcpListener::bind(addr)
@@ -22,7 +23,6 @@ pub async fn serve(
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<(), String> {
     let app = Router::new()
-        .route("/", get(api::index_placeholder))
         .route("/api/state", get(api::get_state))
         .route("/api/events", get(api::events))
         .route(
@@ -33,6 +33,7 @@ pub async fn serve(
         .route("/api/battery/refresh", post(api::refresh_battery))
         .route("/api/config", get(api::get_config).put(api::put_config))
         .route("/api/processes", get(api::list_processes))
+        .fallback(assets::static_handler)
         .with_state(handle);
 
     axum::serve(listener, app)

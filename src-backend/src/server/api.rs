@@ -3,7 +3,7 @@ use crate::daemon::state::DaemonHandle;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse};
+use axum::response::{IntoResponse};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -45,22 +45,6 @@ struct ErrorListResponse {
 #[derive(Serialize)]
 struct ProcessesResponse {
     processes: Vec<String>,
-}
-
-pub async fn index_placeholder() -> Html<&'static str> {
-    Html(
-        r#"<!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><title>F/HUB Backend</title></head>
-<body style="font-family:system-ui,sans-serif;padding:24px;background:#0f172a;color:#e2e8f0">
-  <h1>F/HUB 内蔵サーバー稼働中</h1>
-  <p>Step 3A-1 API サーバーが正常に動作しています（Web UI は Step 3A-3〜3A-5 で組み込み予定）。</p>
-  <ul>
-    <li><a style="color:#38bdf8" href="/api/state">GET /api/state</a></li>
-    <li><a style="color:#38bdf8" href="/api/config">GET /api/config</a></li>
-    <li><a style="color:#38bdf8" href="/api/processes">GET /api/processes</a></li>
-  </ul>
-</body></html>"#,
-    )
 }
 
 pub async fn get_state(State(handle): State<DaemonHandle>) -> impl IntoResponse {

@@ -519,11 +519,21 @@ pub async fn run(
         }
     }
 
+    crate::tray::launcher::close_ui_windows();
     if let Some(tray) = tray {
         tray.stop();
     }
+    // SSE ストリーム (/api/events) を即座に終端させてからサーバー停止を待つ
+    drop(state_tx);
     let _ = shutdown_tx.send(true);
-    let _ = server_task.await;
+    let mut server_task = server_task;
+    if tokio::time::timeout(Duration::from_secs(2), &mut server_task)
+        .await
+        .is_err()
+    {
+        tracing::warn!("内蔵サーバーの終了待機がタイムアウトしたため強制停止します");
+        server_task.abort();
+    }
     watcher.stop();
     if let Some(pool) = pool {
         pool.shutdown();

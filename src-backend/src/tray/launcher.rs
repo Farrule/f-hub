@@ -103,3 +103,101 @@ fn open_macos(url: &str) -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| format!("ブラウザ起動失敗: {e}"))
 }
+
+/// 起動中の F/HUB 独立ウィンドウ (--app=) を閉じる
+pub fn close_ui_windows() {
+    #[cfg(target_os = "windows")]
+    {
+        close_windows();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn close_windows() {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::path::Path;
+    use windows_sys::Win32::Foundation::{CloseHandle, HWND};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetClassNameW, GetWindowTextLengthW, GetWindowTextW,
+        GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+    };
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: isize) -> i32 {
+        unsafe {
+            if IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+
+            let title_len = GetWindowTextLengthW(hwnd);
+            if title_len <= 0 {
+                return 1;
+            }
+            let mut title_buf = vec![0u16; (title_len as usize) + 1];
+            let copied = GetWindowTextW(hwnd, title_buf.as_mut_ptr(), title_buf.len() as i32);
+            if copied <= 0 {
+                return 1;
+            }
+            let title = String::from_utf16_lossy(&title_buf[..copied as usize]);
+
+            // --app= 独立ウィンドウはページタイトル ("F/HUB") と完全一致するため通常ブラウザを誤爆しない
+            if title.trim() != "F/HUB" {
+                return 1;
+            }
+
+            let mut class_buf = [0u16; 128];
+            let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32);
+            if class_len <= 0 {
+                return 1;
+            }
+            let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+            if class_name != "Chrome_WidgetWin_1" {
+                return 1;
+            }
+
+            let mut pid: u32 = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == 0 {
+                return 1;
+            }
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return 1;
+            }
+            let mut exe_buf = vec![0u16; 1024];
+            let mut exe_len = exe_buf.len() as u32;
+            let ok = QueryFullProcessImageNameW(handle, 0, exe_buf.as_mut_ptr(), &mut exe_len);
+            CloseHandle(handle);
+            if ok == 0 || exe_len == 0 {
+                return 1;
+            }
+
+            let full_path = OsString::from_wide(&exe_buf[..exe_len as usize]);
+            let is_browser = Path::new(&full_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| {
+                    n.eq_ignore_ascii_case("msedge.exe") || n.eq_ignore_ascii_case("chrome.exe")
+                })
+                .unwrap_or(false);
+
+            if is_browser {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                let closed_count = &mut *(lparam as *mut usize);
+                *closed_count += 1;
+            }
+        }
+        1
+    }
+
+    let mut closed: usize = 0;
+    unsafe {
+        EnumWindows(Some(enum_proc), (&mut closed as *mut usize) as isize);
+    }
+    if closed > 0 {
+        tracing::info!(count = closed, "独立 UI ウィンドウを閉じました");
+    }
+}
