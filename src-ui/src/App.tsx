@@ -1,154 +1,166 @@
-import { useEffect, useState } from "react";
-import { Activity, Battery, Cpu, Wifi, WifiOff } from "lucide-react";
-import type { AppSnapshot } from "./types";
+import { useCallback, useEffect, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  LayoutDashboard,
+  ListFilter,
+  Settings,
+  SlidersHorizontal,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
+import { DashboardTab } from "./components/DashboardTab";
+import { RemapPlaceholderTab } from "./components/RemapPlaceholderTab";
+import { RulesTab } from "./components/RulesTab";
+import { SettingsTab } from "./components/SettingsTab";
+import { useHub } from "./hooks/useHub";
+import type { ToastMessage } from "./types";
+
+type TabKey = "dashboard" | "rules" | "settings" | "remap";
 
 export default function App() {
-  const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { snapshot, connected, error } = useHub();
+  const [tab, setTab] = useState<TabKey>("dashboard");
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    fetch("/api/state")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json() as Promise<AppSnapshot>;
-      })
-      .then((data) => {
-        if (active) {
-          setSnapshot(data);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (active) setError(`初期取得エラー: ${String(err)}`);
-      });
-
-    const es = new EventSource("/api/events");
-    es.onopen = () => {
-      if (active) {
-        setConnected(true);
-        setError(null);
-      }
-    };
-    es.addEventListener("state", (ev) => {
-      if (!active) return;
-      try {
-        const data = JSON.parse((ev as MessageEvent).data) as AppSnapshot;
-        setSnapshot(data);
-        setConnected(true);
-      } catch (e) {
-        setError(`SSE パースエラー: ${String(e)}`);
-      }
-    });
-    es.onerror = () => {
-      if (active) setConnected(false);
-    };
-
-    return () => {
-      active = false;
-      es.close();
-    };
+  const showToast = useCallback((next: ToastMessage) => {
+    setToast(next);
   }, []);
 
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
+  const navItems: Array<{ key: TabKey; label: string; icon: React.ReactNode }> =
+    [
+      {
+        key: "dashboard",
+        label: "ダッシュボード",
+        icon: <LayoutDashboard className="w-4 h-4" />,
+      },
+      {
+        key: "rules",
+        label: "ルール設定",
+        icon: <ListFilter className="w-4 h-4" />,
+      },
+      {
+        key: "settings",
+        label: "一般設定",
+        icon: <Settings className="w-4 h-4" />,
+      },
+      {
+        key: "remap",
+        label: "リマップ",
+        icon: <SlidersHorizontal className="w-4 h-4" />,
+      },
+    ];
+
   return (
-    <div className="min-h-screen p-6 max-w-5xl mx-auto space-y-6">
-      <header className="flex items-center justify-between border-b border-slate-800 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-slate-900 border border-sky-400/70 flex items-center justify-center font-bold text-sky-400">
-            F
+    <div className="min-h-screen flex flex-col">
+      {/* ヘッダー＆ナビゲーション */}
+      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
+        <div className="max-w-6xl mx-auto px-5 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-slate-900 border border-sky-400/70 flex items-center justify-center font-bold text-sm text-sky-400">
+                F
+              </div>
+              <span className="font-bold tracking-tight text-slate-100">
+                F/HUB
+              </span>
+            </div>
+
+            <nav className="flex items-center gap-1">
+              {navItems.map((item) => {
+                const active = tab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setTab(item.key)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
+                      active
+                        ? "bg-sky-500/15 text-sky-300 border border-sky-500/30"
+                        : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 border border-transparent"
+                    }`}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">F/HUB</h1>
-            <p className="text-xs text-slate-400">
-              Step 3A-3 Vite + SSE 疎通確認
-            </p>
-          </div>
+
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium border ${
+              connected
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                : "bg-rose-500/15 text-rose-300 border-rose-500/30"
+            }`}
+          >
+            {connected ? (
+              <Wifi className="w-3.5 h-3.5" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5" />
+            )}
+            {connected ? "接続中" : "再接続中..."}
+          </span>
         </div>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-            connected
-              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-              : "bg-rose-500/15 text-rose-300 border border-rose-500/30"
-          }`}
-        >
-          {connected ? (
-            <Wifi className="w-3.5 h-3.5" />
-          ) : (
-            <WifiOff className="w-3.5 h-3.5" />
-          )}
-          {connected ? "SSE 接続中" : "未接続"}
-        </span>
       </header>
 
-      {error && (
-        <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 p-3 text-sm text-rose-200">
-          {error}
+      {/* メインコンテンツ */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-5 py-6 space-y-4">
+        {error && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-xs text-rose-200 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {!snapshot ? (
+          <div className="py-16 text-center text-sm text-slate-400">
+            バックエンドから状態を取得しています...
+          </div>
+        ) : (
+          <>
+            {tab === "dashboard" && (
+              <DashboardTab snapshot={snapshot} onToast={showToast} />
+            )}
+            {tab === "rules" && (
+              <RulesTab devices={snapshot.devices} onToast={showToast} />
+            )}
+            {tab === "settings" && (
+              <SettingsTab
+                configPath={snapshot.config_path}
+                onToast={showToast}
+              />
+            )}
+            {tab === "remap" && (
+              <RemapPlaceholderTab devices={snapshot.devices} />
+            )}
+          </>
+        )}
+      </main>
+
+      {/* 右下トースト通知 */}
+      {toast && (
+        <div
+          className={`fixed bottom-5 right-5 z-30 max-w-sm rounded-xl border px-4 py-3 text-xs shadow-xl flex items-center gap-2 ${
+            toast.kind === "success"
+              ? "bg-slate-900 border-emerald-500/40 text-emerald-200"
+              : "bg-slate-900 border-rose-500/40 text-rose-200"
+          }`}
+        >
+          {toast.kind === "success" ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          )}
+          <span>{toast.text}</span>
         </div>
-      )}
-
-      {snapshot && (
-        <>
-          <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 flex flex-wrap gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-sky-400" />
-              <span className="text-slate-400">前面アプリ:</span>
-              <span className="font-mono font-medium">
-                {snapshot.active_exe ?? "-"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Cpu className="w-4 h-4 text-sky-400" />
-              <span className="text-slate-400">適用ルール:</span>
-              <span className="font-medium text-sky-300">
-                {snapshot.active_rule}
-              </span>
-            </div>
-            <div className="text-slate-400">
-              自動切替:{" "}
-              <span
-                className={
-                  snapshot.auto_switch ? "text-emerald-400" : "text-amber-400"
-                }
-              >
-                {snapshot.auto_switch ? "ON" : "手動固定"}
-              </span>
-            </div>
-          </section>
-
-          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {snapshot.devices.map((dev) => (
-              <div
-                key={dev.id}
-                className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2"
-              >
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-sm">{dev.name}</h2>
-                  <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {dev.mode}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="inline-flex items-center gap-1">
-                    <Battery className="w-3.5 h-3.5" />
-                    {dev.capabilities.battery
-                      ? dev.battery_percent !== null
-                        ? `${dev.battery_percent}%`
-                        : "取得中..."
-                      : "非対応"}
-                  </span>
-                  <span>
-                    Slot:{" "}
-                    {dev.capabilities.profile
-                      ? (dev.active_slot ?? "-")
-                      : "非対応"}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </section>
-        </>
       )}
     </div>
   );

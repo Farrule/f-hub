@@ -1,5 +1,3 @@
-export type ConnectionMode = "wired" | "wireless_24g" | "disconnected";
-
 export interface Capabilities {
   battery: boolean;
   profile: boolean;
@@ -13,7 +11,7 @@ export interface DeviceStateSnapshot {
   name: string;
   kind: string;
   capabilities: Capabilities;
-  mode: ConnectionMode;
+  mode: string;
   battery_percent: number | null;
   charging_label: string | null;
   is_charging: boolean;
@@ -48,4 +46,9 @@ export interface Config {
   general: GeneralConfig;
   default: Record<string, number>;
   rules: RuleConfig[];
+}
+
+export interface ToastMessage {
+  kind: "success" | "error";
+  text: string;
 }
