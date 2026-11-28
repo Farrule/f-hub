@@ -1,3 +1,5 @@
+mod config;
+mod daemon;
 mod devices;
 mod model;
 mod protocols;
@@ -6,6 +8,9 @@ use clap::{Parser, Subcommand};
 use hidapi::HidApi;
 use model::{BatteryInfo, Capabilities, ConnectionMode, DeviceKind};
 use serde::Serialize;
+use config::Config;
+use std::path::PathBuf;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(name = "f-hub", version, about = "F/HUB デバイス統合管理 CLI")]
@@ -34,6 +39,24 @@ enum Commands {
         device: String,
         /// 切替先スロット番号
         slot: u8,
+    },
+    /// デーモン用 config.toml のテンプレートを生成
+    InitConfig {
+        /// 出力先ファイルパス（省略時は OS 標準設定パス）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// 既存ファイルがある場合に上書きする
+        #[arg(long)]
+        force: bool,
+    },
+    /// バックグラウンド常駐デーモンを起動（プロファイル自動切替・バッテリー監視）
+    Daemon {
+        /// 設定ファイルパス（省略時は FHUB_CONFIG -> ./config.toml -> OS 標準パス）
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// HID 送信を行わず切替判定ログのみ出力
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -274,16 +297,98 @@ fn cmd_profile(api: &HidApi, device_id: &str, slot: u8) {
     }
 }
 
+fn cmd_init_config(output: Option<PathBuf>, force: bool) {
+    let target = output.unwrap_or_else(Config::default_config_path);
+    match Config::write_template(&target, force) {
+        Ok(()) => {
+            println!("テンプレートを生成しました: {}", target.display());
+            // 生成直後に自身のバリデーションも通ることを確認
+            if let Err(e) = Config::load_and_validate(&target) {
+                eprintln!("内部警告: 生成テンプレートの検証に失敗しました:\n{e}");
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool) {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
+
+    let resolved = Config::resolve_path(config_path.as_deref());
+    let cfg = match Config::load_and_validate(&resolved) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("{e}");
+            std::process::exit(1);
+        }
+    };
+
+    tracing::info!(
+        path = %resolved.display(),
+        dry_run,
+        debounce_ms = cfg.general.debounce_ms,
+        battery_poll_sec = cfg.general.battery_poll_sec,
+        low_battery_threshold = cfg.general.low_battery_threshold,
+        rules = cfg.rules.len(),
+        "設定ファイルを読み込みました"
+    );
+    tracing::info!(default_profiles = ?cfg.default, "デフォルトプロファイル");
+    for rule in &cfg.rules {
+        tracing::info!(
+            rule = %rule.name,
+            match_exe = ?rule.match_exe,
+            profiles = ?rule.profiles,
+            "ルール登録"
+        );
+    }
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|e| {
+            tracing::error!("Tokio ランタイム起動失敗: {e}");
+            std::process::exit(1);
+        });
+
+    if let Err(e) = rt.block_on(daemon::run(cfg, dry_run)) {
+        tracing::error!("デーモン異常終了: {e}");
+        std::process::exit(1);
+    }
+
+    tracing::info!("Step 2-1: 設定検証完了（Step 2-2 で ActiveAppWatcher を接続します）");
+}
+
 fn main() {
     let cli = Cli::parse();
-    let api = HidApi::new().unwrap_or_else(|e| {
-        eprintln!("hidapi 初期化エラー: {e}");
-        std::process::exit(1);
-    });
 
     match cli.command {
-        Commands::List { json } => cmd_list(&api, json),
-        Commands::Battery { json } => cmd_battery(&api, json),
-        Commands::Profile { device, slot } => cmd_profile(&api, &device, slot),
+        Commands::InitConfig { output, force } => {
+            cmd_init_config(output, force);
+            return;
+        }
+        Commands::Daemon { config, dry_run } => {
+            cmd_daemon(config, dry_run);
+            return;
+        }
+        other => {
+            let api = HidApi::new().unwrap_or_else(|e| {
+                eprintln!("hidapi 初期化エラー: {e}");
+                std::process::exit(1);
+            });
+            match other {
+                Commands::List { json } => cmd_list(&api, json),
+                Commands::Battery { json } => cmd_battery(&api, json),
+                Commands::Profile { device, slot } => cmd_profile(&api, &device, slot),
+                Commands::InitConfig { .. } | Commands::Daemon { .. } => unreachable!(),
+            }
+        }
     }
 }
