@@ -6,6 +6,7 @@ use std::process::Command;
 const HYSTERESIS_RECOVERY_MARGIN: u8 = 5;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Phase 3-A の Web UI / API スナップショット配信で参照予定
 pub struct CachedBattery {
     pub mode: ConnectionMode,
     pub percent: Option<u8>,
