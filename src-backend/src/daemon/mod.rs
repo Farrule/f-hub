@@ -367,6 +367,75 @@ pub async fn run(
                         let _ = state_tx.send(snapshot.clone());
                         let _ = reply.send(Ok(()));
                     }
+                    DaemonCommand::ReadRemap {
+                        device_id,
+                        layer,
+                        reply,
+                    } => match &pool {
+                        Some(p) => match p.read_remap(&device_id, layer) {
+                            Ok(rx) => {
+                                tokio::spawn(async move {
+                                    let res = rx
+                                        .await
+                                        .unwrap_or_else(|_| Err("ワーカー応答の受信に失敗しました".to_string()));
+                                    let _ = reply.send(res);
+                                });
+                            }
+                            Err(e) => {
+                                let _ = reply.send(Err(e));
+                            }
+                        },
+                        None => {
+                            let _ = reply.send(Err("HID ワーカースレッドが初期化されていません".to_string()));
+                        }
+                    },
+                    DaemonCommand::WriteRemap {
+                        device_id,
+                        layer,
+                        slot_id,
+                        action,
+                        reply,
+                    } => match &pool {
+                        Some(p) => match p.write_remap(&device_id, layer, &slot_id, &action) {
+                            Ok(rx) => {
+                                tokio::spawn(async move {
+                                    let res = rx
+                                        .await
+                                        .unwrap_or_else(|_| Err("ワーカー応答の受信に失敗しました".to_string()));
+                                    let _ = reply.send(res);
+                                });
+                            }
+                            Err(e) => {
+                                let _ = reply.send(Err(e));
+                            }
+                        },
+                        None => {
+                            let _ = reply.send(Err("HID ワーカースレッドが初期化されていません".to_string()));
+                        }
+                    },
+                    DaemonCommand::ResetRemap {
+                        device_id,
+                        layer,
+                        slot_id,
+                        reply,
+                    } => match &pool {
+                        Some(p) => match p.reset_remap(&device_id, layer, slot_id.as_deref()) {
+                            Ok(rx) => {
+                                tokio::spawn(async move {
+                                    let res = rx
+                                        .await
+                                        .unwrap_or_else(|_| Err("ワーカー応答の受信に失敗しました".to_string()));
+                                    let _ = reply.send(res);
+                                });
+                            }
+                            Err(e) => {
+                                let _ = reply.send(Err(e));
+                            }
+                        },
+                        None => {
+                            let _ = reply.send(Err("HID ワーカースレッドが初期化されていません".to_string()));
+                        }
+                    },
                     DaemonCommand::Shutdown => {
                         tracing::info!("終了コマンドを受信しました。デーモンを終了します...");
                         break;

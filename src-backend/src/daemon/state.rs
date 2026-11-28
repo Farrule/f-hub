@@ -101,6 +101,24 @@ pub enum DaemonCommand {
     },
     #[allow(dead_code)] // Step 3A-2 のトレイ終了メニューから使用
     Shutdown,
+    ReadRemap {
+        device_id: String,
+        layer: u8,
+        reply: tokio::sync::oneshot::Sender<Result<crate::remap::RemapState, String>>,
+    },
+    WriteRemap {
+        device_id: String,
+        layer: u8,
+        slot_id: String,
+        action: crate::remap::RemapAction,
+        reply: tokio::sync::oneshot::Sender<Result<crate::remap::RemapState, String>>,
+    },
+    ResetRemap {
+        device_id: String,
+        layer: u8,
+        slot_id: Option<String>,
+        reply: tokio::sync::oneshot::Sender<Result<crate::remap::RemapState, String>>,
+    },
 }
 
 #[derive(Clone)]
@@ -193,5 +211,62 @@ impl DaemonHandle {
     #[allow(dead_code)] // Step 3A-2 のトレイ終了メニューから使用
     pub fn shutdown(&self) {
         let _ = self.cmd_tx.send(DaemonCommand::Shutdown);
+    }
+
+    pub async fn read_remap(
+        &self,
+        device_id: String,
+        layer: u8,
+    ) -> Result<crate::remap::RemapState, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.cmd_tx
+            .send(DaemonCommand::ReadRemap {
+                device_id,
+                layer,
+                reply: tx,
+            })
+            .map_err(|_| "デーモンが停止しています".to_string())?;
+        rx.await
+            .map_err(|_| "リマップ読み出し応答の待機に失敗しました".to_string())?
+    }
+
+    pub async fn write_remap(
+        &self,
+        device_id: String,
+        layer: u8,
+        slot_id: String,
+        action: crate::remap::RemapAction,
+    ) -> Result<crate::remap::RemapState, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.cmd_tx
+            .send(DaemonCommand::WriteRemap {
+                device_id,
+                layer,
+                slot_id,
+                action,
+                reply: tx,
+            })
+            .map_err(|_| "デーモンが停止しています".to_string())?;
+        rx.await
+            .map_err(|_| "リマップ書き込み応答の待機に失敗しました".to_string())?
+    }
+
+    pub async fn reset_remap(
+        &self,
+        device_id: String,
+        layer: u8,
+        slot_id: Option<String>,
+    ) -> Result<crate::remap::RemapState, String> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.cmd_tx
+            .send(DaemonCommand::ResetRemap {
+                device_id,
+                layer,
+                slot_id,
+                reply: tx,
+            })
+            .map_err(|_| "デーモンが停止しています".to_string())?;
+        rx.await
+            .map_err(|_| "リマップ初期化応答の待機に失敗しました".to_string())?
     }
 }

@@ -1,5 +1,6 @@
 mod config;
 mod daemon;
+mod remap;
 mod devices;
 mod model;
 mod protocols;

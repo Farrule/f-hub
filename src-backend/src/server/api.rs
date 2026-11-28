@@ -235,3 +235,57 @@ pub async fn open_ui(State(handle): State<DaemonHandle>) -> impl IntoResponse {
             .into_response(),
     }
 }
+
+#[derive(serde::Deserialize)]
+pub struct RemapQuery {
+    #[serde(default)]
+    pub layer: u8,
+}
+
+pub async fn get_device_remap(
+    State(handle): State<DaemonHandle>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<RemapQuery>,
+) -> impl IntoResponse {
+    match handle.read_remap(id, query.layer).await {
+        Ok(state) => (StatusCode::OK, Json(state)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorListResponse { errors: vec![err] }),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn put_device_remap(
+    State(handle): State<DaemonHandle>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<crate::remap::UpdateRemapRequest>,
+) -> impl IntoResponse {
+    match handle
+        .write_remap(id, req.layer, req.slot_id, req.action)
+        .await
+    {
+        Ok(state) => (StatusCode::OK, Json(state)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorListResponse { errors: vec![err] }),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn reset_device_remap(
+    State(handle): State<DaemonHandle>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(req): Json<crate::remap::ResetRemapRequest>,
+) -> impl IntoResponse {
+    match handle.reset_remap(id, req.layer, req.slot_id).await {
+        Ok(state) => (StatusCode::OK, Json(state)).into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorListResponse { errors: vec![err] }),
+        )
+            .into_response(),
+    }
+}

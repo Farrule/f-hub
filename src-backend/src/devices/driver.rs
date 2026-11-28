@@ -25,4 +25,24 @@ pub trait DeviceDriver: Send + Sync {
     fn switch_profile(&self, _api: &HidApi, _slot: u8) -> Result<ProfileResult, DeviceError> {
         Err(DeviceError::Unsupported)
     }
+    /// リマップ機能の対応状況を返す（未対応デバイスは None）
+    fn remap_capabilities(&self) -> Option<crate::remap::RemapCapabilities> {
+        None
+    }
+
+    /// 指定レイヤーの現在リマップ状態を読み出す
+    fn read_remap(&self, _api: &hidapi::HidApi, _layer: u8,) -> Result<crate::remap::RemapState, DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
+
+    /// 指定スロットへリマップ割当を書き込む
+    fn write_remap(
+        &self,
+        _api: &hidapi::HidApi,
+        _layer: u8,
+        _slot_id: &str,
+        _action: &crate::remap::RemapAction,
+    ) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
 }

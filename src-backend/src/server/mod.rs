@@ -34,6 +34,11 @@ pub async fn serve(
         .route("/api/config", get(api::get_config).put(api::put_config))
         .route("/api/processes", get(api::list_processes))
         .route("/api/ui/open", post(api::open_ui))
+        .route(
+            "/api/devices/{id}/remap",
+            get(api::get_device_remap).put(api::put_device_remap),
+        )
+        .route("/api/devices/{id}/remap/reset", post(api::reset_device_remap))
         .fallback(assets::static_handler)
         .with_state(handle);
 
