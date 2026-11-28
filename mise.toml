@@ -1,8 +1,7 @@
 [tools]
 rust = "stable"
-# Phase 3-A フロントエンド開発開始時にコメント解除
-# node = "22"
-# pnpm = "latest"
+node = "22"
+pnpm = "latest"
 
 [env]
 RUSTUP_HOME = "{{config_root}}/.local/rustup"
@@ -13,4 +12,5 @@ npm_config_cache = "{{config_root}}/.local/npm-cache"
 _.path = [
   "{{config_root}}/.local/cargo/bin",
   "{{config_root}}/.local/mingw64/bin",
+  "{{config_root}}/.local/pnpm",
 ]
