@@ -201,12 +201,14 @@ pub async fn run(
     dry_run: bool,
     port: u16,
     no_tray: bool,
+    open_ui: bool,
 ) -> Result<(), String> {
     let listener = server::bind(port).await?;
     let bound_addr = listener
         .local_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| format!("127.0.0.1:{port}"));
+    let ui_url = format!("http://{bound_addr}");
 
     let pool = if dry_run {
         None
@@ -220,19 +222,41 @@ pub async fn run(
     let handle = DaemonHandle::new(state_rx, cmd_tx);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let server_task = tokio::spawn(server::serve(listener, handle, shutdown_rx));
+    let server_task = tokio::spawn(server::serve(listener, handle.clone(), shutdown_rx));
+
+    let tray = if no_tray {
+        None
+    } else {
+        match crate::tray::SystemTray::start(
+            ui_url.clone(),
+            handle.clone(),
+            tokio::runtime::Handle::current(),
+        ) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::error!(error = %e, "システムトレイ起動失敗（--no-tray 相当で継続します）");
+                None
+            }
+        }
+    };
+
+    if open_ui {
+        if let Err(e) = crate::tray::launcher::open_ui_window(&ui_url) {
+            tracing::warn!(error = %e, "UI ウィンドウの自動起動に失敗しました");
+        }
+    }
 
     let (watcher, mut rx) = ActiveAppWatcher::start()?;
     let mut debounce = Duration::from_millis(cfg.general.debounce_ms);
 
     tracing::info!(
-        url = %format!("http://{bound_addr}"),
+        url = %ui_url,
         dry_run,
-        no_tray,
+        tray = tray.is_some(),
         debounce_ms = cfg.general.debounce_ms,
         battery_poll_sec = cfg.general.battery_poll_sec,
         low_battery_threshold = cfg.general.low_battery_threshold,
-        "常駐デーモン＋内蔵サーバーを起動しました（終了: Ctrl+C）"
+        "常駐デーモン＋内蔵サーバーを起動しました（終了: Ctrl+C またはトレイの終了）"
     );
 
     let mut pending: Option<AppEvent> = None;
@@ -495,6 +519,9 @@ pub async fn run(
         }
     }
 
+    if let Some(tray) = tray {
+        tray.stop();
+    }
     let _ = shutdown_tx.send(true);
     let _ = server_task.await;
     watcher.stop();

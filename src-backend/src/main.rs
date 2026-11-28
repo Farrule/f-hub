@@ -4,6 +4,7 @@ mod devices;
 mod model;
 mod protocols;
 mod server;
+mod tray;
 
 use clap::{Parser, Subcommand};
 use hidapi::HidApi;
@@ -64,6 +65,9 @@ enum Commands {
         /// システムトレイを起動せず端末モードで実行
         #[arg(long)]
         no_tray: bool,
+        /// 起動直後に独立ウィンドウで UI を開く
+        #[arg(long)]
+        open: bool,
     },
 }
 
@@ -322,7 +326,7 @@ fn cmd_init_config(output: Option<PathBuf>, force: bool) {
     }
 }
 
-fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool, port: u16, no_tray: bool) {
+fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool, port: u16, no_tray: bool, open: bool) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -346,7 +350,7 @@ fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool, port: u16, no_tray: b
             std::process::exit(1);
         });
 
-    if let Err(e) = rt.block_on(daemon::run(cfg, resolved, dry_run, port, no_tray)) {
+    if let Err(e) = rt.block_on(daemon::run(cfg, resolved, dry_run, port, no_tray, open)) {
         tracing::error!("デーモン異常終了: {e}");
         std::process::exit(1);
     }
@@ -365,8 +369,9 @@ fn main() {
             dry_run,
             port,
             no_tray,
+            open,
         } => {
-            cmd_daemon(config, dry_run, port, no_tray);
+            cmd_daemon(config, dry_run, port, no_tray, open);
             return;
         }
         other => {
