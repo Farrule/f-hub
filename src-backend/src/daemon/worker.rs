@@ -6,6 +6,9 @@ use std::thread::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 
 pub enum WorkerCommand {
+    Probe {
+        reply: oneshot::Sender<ConnectionMode>,
+    },
     SwitchProfile {
         slot: u8,
         reply: oneshot::Sender<Result<String, String>>,
@@ -18,6 +21,7 @@ pub enum WorkerCommand {
 pub struct DeviceWorkerPool {
     workers: HashMap<String, mpsc::UnboundedSender<WorkerCommand>>,
     battery_targets: Vec<(&'static str, &'static str)>,
+    probe_only_targets: Vec<(&'static str, &'static str)>,
     handles: Vec<JoinHandle<()>>,
 }
 
@@ -26,6 +30,7 @@ impl DeviceWorkerPool {
     pub fn spawn_all() -> Self {
         let mut workers = HashMap::new();
         let mut battery_targets = Vec::new();
+        let mut probe_only_targets = Vec::new();
         let mut handles = Vec::new();
 
         for drv in devices::all_drivers() {
@@ -33,6 +38,8 @@ impl DeviceWorkerPool {
             let device_name = drv.name();
             if drv.capabilities().battery {
                 battery_targets.push((device_id, device_name));
+            } else {
+                probe_only_targets.push((device_id, device_name));
             }
 
             let (tx, mut rx) = mpsc::unbounded_channel::<WorkerCommand>();
@@ -69,6 +76,10 @@ impl DeviceWorkerPool {
                         }
 
                         match cmd {
+                            WorkerCommand::Probe { reply } => {
+                                let presence = drv.probe(&api);
+                                let _ = reply.send(presence.mode);
+                            }
                             WorkerCommand::SwitchProfile { slot, reply } => {
                                 let presence = drv.probe(&api);
                                 if presence.mode == ConnectionMode::Disconnected {
@@ -109,6 +120,7 @@ impl DeviceWorkerPool {
         Self {
             workers,
             battery_targets,
+            probe_only_targets,
             handles,
         }
     }
@@ -116,6 +128,25 @@ impl DeviceWorkerPool {
     /// バッテリー監視対象デバイス (id, name) の一覧を返す
     pub fn battery_targets(&self) -> &[(&'static str, &'static str)] {
         &self.battery_targets
+    }
+
+    /// バッテリー非対応で接続確認のみ行うデバイス (id, name) の一覧を返す
+    pub fn probe_only_targets(&self) -> &[(&'static str, &'static str)] {
+        &self.probe_only_targets
+    }
+
+    /// 指定デバイスの接続状態のみ確認する
+    pub fn probe(&self, device_id: &str) -> Result<oneshot::Receiver<ConnectionMode>, String> {
+        let tx = self
+            .workers
+            .get(device_id)
+            .ok_or_else(|| format!("ワーカー未登録: {device_id}"))?;
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        tx.send(WorkerCommand::Probe { reply: reply_tx })
+            .map_err(|_| format!("ワーカー停止済み: {device_id}"))?;
+
+        Ok(reply_rx)
     }
 
     /// 指定デバイスのワーカーキューへプロファイル切替コマンドを投入する

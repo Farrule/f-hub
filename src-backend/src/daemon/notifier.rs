@@ -93,6 +93,15 @@ impl BatteryMonitor {
         }
         state.last_known.as_ref()
     }
+    /// 低バッテリー通知閾値を動的に更新する（設定ホットリロード用）
+    pub fn set_threshold(&mut self, threshold: u8) {
+        self.threshold = threshold;
+    }
+
+    /// 指定デバイスの直近バッテリーキャッシュを取得する
+    pub fn get(&self, device_id: &str) -> Option<&CachedBattery> {
+        self.states.get(device_id).and_then(|s| s.last_known.as_ref())
+    }
 }
 
 fn is_charging_or_full(info: &BatteryInfo) -> bool {

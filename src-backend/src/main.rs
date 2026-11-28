@@ -3,6 +3,7 @@ mod daemon;
 mod devices;
 mod model;
 mod protocols;
+mod server;
 
 use clap::{Parser, Subcommand};
 use hidapi::HidApi;
@@ -49,7 +50,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// バックグラウンド常駐デーモンを起動（プロファイル自動切替・バッテリー監視）
+    /// バックグラウンド常駐デーモンを起動（プロファイル自動切替・バッテリー監視・内蔵サーバー）
     Daemon {
         /// 設定ファイルパス（省略時は FHUB_CONFIG -> ./config.toml -> OS 標準パス）
         #[arg(short, long)]
@@ -57,6 +58,12 @@ enum Commands {
         /// HID 送信を行わず切替判定ログのみ出力
         #[arg(long)]
         dry_run: bool,
+        /// 内蔵 Web サーバーの待受ポート (127.0.0.1 のみバインド)
+        #[arg(long, default_value_t = 17890)]
+        port: u16,
+        /// システムトレイを起動せず端末モードで実行
+        #[arg(long)]
+        no_tray: bool,
     },
 }
 
@@ -315,7 +322,7 @@ fn cmd_init_config(output: Option<PathBuf>, force: bool) {
     }
 }
 
-fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool) {
+fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool, port: u16, no_tray: bool) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -331,25 +338,6 @@ fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool) {
         }
     };
 
-    tracing::info!(
-        path = %resolved.display(),
-        dry_run,
-        debounce_ms = cfg.general.debounce_ms,
-        battery_poll_sec = cfg.general.battery_poll_sec,
-        low_battery_threshold = cfg.general.low_battery_threshold,
-        rules = cfg.rules.len(),
-        "設定ファイルを読み込みました"
-    );
-    tracing::info!(default_profiles = ?cfg.default, "デフォルトプロファイル");
-    for rule in &cfg.rules {
-        tracing::info!(
-            rule = %rule.name,
-            match_exe = ?rule.match_exe,
-            profiles = ?rule.profiles,
-            "ルール登録"
-        );
-    }
-
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -358,12 +346,10 @@ fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool) {
             std::process::exit(1);
         });
 
-    if let Err(e) = rt.block_on(daemon::run(cfg, dry_run)) {
+    if let Err(e) = rt.block_on(daemon::run(cfg, resolved, dry_run, port, no_tray)) {
         tracing::error!("デーモン異常終了: {e}");
         std::process::exit(1);
     }
-
-    tracing::info!("Step 2-1: 設定検証完了（Step 2-2 で ActiveAppWatcher を接続します）");
 }
 
 fn main() {
@@ -374,8 +360,13 @@ fn main() {
             cmd_init_config(output, force);
             return;
         }
-        Commands::Daemon { config, dry_run } => {
-            cmd_daemon(config, dry_run);
+        Commands::Daemon {
+            config,
+            dry_run,
+            port,
+            no_tray,
+        } => {
+            cmd_daemon(config, dry_run, port, no_tray);
             return;
         }
         other => {

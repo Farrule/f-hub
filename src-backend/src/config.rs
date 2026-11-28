@@ -282,4 +282,37 @@ hyzen = 2
             }
         }
     }
+
+    /// 設定内容を TOML 形式で保存する（一時ファイル経由で安全に更新）
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let serialized =
+            toml::to_string_pretty(self).map_err(|e| format!("TOML シリアライズ失敗: {e}"))?;
+
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    format!("ディレクトリ作成失敗 ({}): {e}", parent.display())
+                })?;
+            }
+        }
+
+        let tmp = path.with_extension("toml.tmp");
+        fs::write(&tmp, &serialized)
+            .map_err(|e| format!("一時ファイル書込失敗 ({}): {e}", tmp.display()))?;
+
+        #[cfg(target_os = "windows")]
+        {
+            fs::copy(&tmp, path)
+                .map_err(|e| format!("設定ファイル更新失敗 ({}): {e}", path.display()))?;
+            let _ = fs::remove_file(&tmp);
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            fs::rename(&tmp, path)
+                .map_err(|e| format!("設定ファイル更新失敗 ({}): {e}", path.display()))?;
+        }
+
+        Ok(())
+    }
 }
