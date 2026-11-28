@@ -107,14 +107,24 @@ pub enum DaemonCommand {
 pub struct DaemonHandle {
     state_rx: watch::Receiver<AppSnapshot>,
     cmd_tx: mpsc::UnboundedSender<DaemonCommand>,
+    ui_url: String,
 }
 
 impl DaemonHandle {
     pub fn new(
         state_rx: watch::Receiver<AppSnapshot>,
         cmd_tx: mpsc::UnboundedSender<DaemonCommand>,
+        ui_url: String,
     ) -> Self {
-        Self { state_rx, cmd_tx }
+        Self {
+            state_rx,
+            cmd_tx,
+            ui_url,
+        }
+    }
+
+    pub fn ui_url(&self) -> &str {
+        &self.ui_url
     }
 
     pub fn snapshot(&self) -> AppSnapshot {

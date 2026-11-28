@@ -1,0 +1,92 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "F/HUB: Release Build & Installer",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "powershell",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-release.ps1",
+        "-OpenOutput"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "F/HUB: Release Build (Skip Tests)",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "powershell",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/build-release.ps1",
+        "-SkipTests",
+        "-OpenOutput"
+      ],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "F/HUB: Dev Backend (cargo run)",
+      "type": "shell",
+      "command": "mise",
+      "args": [
+        "exec",
+        "--",
+        "cargo",
+        "run",
+        "--",
+        "daemon",
+        "--config",
+        "./config.toml"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/src-backend"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "F/HUB: Dev Frontend (pnpm dev)",
+      "type": "shell",
+      "command": "mise",
+      "args": ["exec", "--", "pnpm", "dev"],
+      "options": {
+        "cwd": "${workspaceFolder}/src-ui"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "F/HUB: Dev All (Backend + Frontend)",
+      "dependsOn": [
+        "F/HUB: Dev Backend (cargo run)",
+        "F/HUB: Dev Frontend (pnpm dev)"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

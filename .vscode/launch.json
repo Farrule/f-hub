@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "F/HUB: Debug Daemon (F5)",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=f-hub",
+          "--manifest-path=${workspaceFolder}/src-backend/Cargo.toml"
+        ]
+      },
+      "args": ["daemon", "--config", "./config.toml"],
+      "cwd": "${workspaceFolder}/src-backend"
+    }
+  ]
+}

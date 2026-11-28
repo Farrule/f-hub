@@ -37,7 +37,7 @@ impl SystemTray {
 
 #[cfg(target_os = "windows")]
 mod platform {
-    use super::launcher::open_ui_window;
+    use super::launcher::focus_or_open_ui_window;
     use super::SystemTray;
     use crate::daemon::state::DaemonHandle;
     use std::cell::RefCell;
@@ -178,7 +178,7 @@ mod platform {
             }
         }
         ctx.last_open = Some(now);
-        if let Err(e) = open_ui_window(&ctx.ui_url) {
+        if let Err(e) = focus_or_open_ui_window(&ctx.ui_url) {
             tracing::error!(error = %e, "UI ウィンドウ起動失敗");
         }
     }

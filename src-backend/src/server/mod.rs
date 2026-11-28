@@ -33,6 +33,7 @@ pub async fn serve(
         .route("/api/battery/refresh", post(api::refresh_battery))
         .route("/api/config", get(api::get_config).put(api::put_config))
         .route("/api/processes", get(api::list_processes))
+        .route("/api/ui/open", post(api::open_ui))
         .fallback(assets::static_handler)
         .with_state(handle);
 

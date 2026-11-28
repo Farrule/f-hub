@@ -219,7 +219,7 @@ pub async fn run(
     let mut snapshot = AppSnapshot::initial(&config_path, dry_run);
     let (state_tx, state_rx) = watch::channel(snapshot.clone());
     let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<DaemonCommand>();
-    let handle = DaemonHandle::new(state_rx, cmd_tx);
+    let handle = DaemonHandle::new(state_rx, cmd_tx, ui_url.clone());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let server_task = tokio::spawn(server::serve(listener, handle.clone(), shutdown_rx));
@@ -241,7 +241,7 @@ pub async fn run(
     };
 
     if open_ui {
-        if let Err(e) = crate::tray::launcher::open_ui_window(&ui_url) {
+        if let Err(e) = crate::tray::launcher::focus_or_open_ui_window(&ui_url) {
             tracing::warn!(error = %e, "UI ウィンドウの自動起動に失敗しました");
         }
     }

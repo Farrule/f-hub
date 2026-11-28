@@ -13,6 +13,7 @@ use serde::Serialize;
 use config::Config;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "f-hub", version, about = "F/HUB デバイス統合管理 CLI")]
@@ -331,6 +332,7 @@ fn cmd_daemon(config_path: Option<PathBuf>, dry_run: bool, port: u16, no_tray: b
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
 
     let resolved = Config::resolve_path(config_path.as_deref());

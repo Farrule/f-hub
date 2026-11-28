@@ -55,7 +55,7 @@ impl Config {
         {
             if let Ok(appdata) = std::env::var("APPDATA") {
                 if !appdata.trim().is_empty() {
-                    return PathBuf::from(appdata).join("f-hub").join("config.toml");
+                    return PathBuf::from(appdata).join("F-HUB").join("config.toml");
                 }
             }
         }
@@ -64,7 +64,7 @@ impl Config {
         {
             if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
                 if !xdg.trim().is_empty() {
-                    return PathBuf::from(xdg).join("f-hub").join("config.toml");
+                    return PathBuf::from(xdg).join("F-HUB").join("config.toml");
                 }
             }
             if let Ok(home) = std::env::var("HOME") {

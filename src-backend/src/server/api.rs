@@ -205,3 +205,33 @@ fn list_visible_processes() -> Vec<String> {
 fn list_visible_processes() -> Vec<String> {
     Vec::new()
 }
+
+pub async fn open_ui(State(handle): State<DaemonHandle>) -> impl IntoResponse {
+    let url = handle.ui_url().to_string();
+    let res = tokio::task::spawn_blocking(move || {
+        crate::tray::launcher::focus_or_open_ui_window(&url)
+    })
+    .await;
+
+    match res {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(MessageResponse {
+                message: "UI ウィンドウを表示しました".to_string(),
+            }),
+        )
+            .into_response(),
+        Ok(Err(err)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorListResponse { errors: vec![err] }),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorListResponse {
+                errors: vec!["UI 起動タスクが中断されました".to_string()],
+            }),
+        )
+            .into_response(),
+    }
+}

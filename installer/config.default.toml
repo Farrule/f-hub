@@ -1,0 +1,10 @@
+# F/HUB デフォルト設定ファイル
+# このファイルは初回インストール時に自動生成されました。
+
+[general]
+debounce_ms = 250
+battery_poll_sec = 120
+low_battery_threshold = 20
+
+[defaults]
+# デフォルトプロファイル（必要に応じて UI の「ルール設定」から編集できます）

@@ -1,6 +1,18 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+/// 既存の F/HUB 独立ウィンドウがあれば最前面へフォーカスし、無ければ新規起動する
+pub fn focus_or_open_ui_window(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if focus_existing_window() {
+            return Ok(());
+        }
+    }
+
+    open_ui_window(url)
+}
+
 /// 内蔵 Web UI を独立ウィンドウ（--app= モード）で開く
 pub fn open_ui_window(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -20,6 +32,14 @@ pub fn open_ui_window(url: &str) -> Result<(), String> {
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("ブラウザ起動失敗: {e}"))
+    }
+}
+
+/// 起動中の F/HUB 独立ウィンドウ (--app=) を閉じる
+pub fn close_ui_windows() {
+    #[cfg(target_os = "windows")]
+    {
+        close_windows();
     }
 }
 
@@ -79,41 +99,8 @@ fn find_windows_app_browser() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
-#[cfg(target_os = "macos")]
-fn open_macos(url: &str) -> Result<(), String> {
-    let candidates = [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    ];
-
-    for path in candidates {
-        if PathBuf::from(path).is_file() {
-            return Command::new(path)
-                .arg(format!("--app={url}"))
-                .spawn()
-                .map(|_| ())
-                .map_err(|e| format!("ブラウザ起動失敗 ({path}): {e}"));
-        }
-    }
-
-    Command::new("open")
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("ブラウザ起動失敗: {e}"))
-}
-
-/// 起動中の F/HUB 独立ウィンドウ (--app=) を閉じる
-pub fn close_ui_windows() {
-    #[cfg(target_os = "windows")]
-    {
-        close_windows();
-    }
-}
-
 #[cfg(target_os = "windows")]
-fn close_windows() {
+fn find_ui_windows() -> Vec<windows_sys::Win32::Foundation::HWND> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     use std::path::Path;
@@ -123,7 +110,7 @@ fn close_windows() {
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClassNameW, GetWindowTextLengthW, GetWindowTextW,
-        GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+        GetWindowThreadProcessId, IsWindowVisible,
     };
 
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: isize) -> i32 {
@@ -142,8 +129,6 @@ fn close_windows() {
                 return 1;
             }
             let title = String::from_utf16_lossy(&title_buf[..copied as usize]);
-
-            // --app= 独立ウィンドウはページタイトル ("F/HUB") と完全一致するため通常ブラウザを誤爆しない
             if title.trim() != "F/HUB" {
                 return 1;
             }
@@ -185,19 +170,78 @@ fn close_windows() {
                 .unwrap_or(false);
 
             if is_browser {
-                PostMessageW(hwnd, WM_CLOSE, 0, 0);
-                let closed_count = &mut *(lparam as *mut usize);
-                *closed_count += 1;
+                let list = &mut *(lparam as *mut Vec<HWND>);
+                list.push(hwnd);
             }
         }
         1
     }
 
-    let mut closed: usize = 0;
+    let mut found: Vec<HWND> = Vec::new();
     unsafe {
-        EnumWindows(Some(enum_proc), (&mut closed as *mut usize) as isize);
+        EnumWindows(Some(enum_proc), (&mut found as *mut Vec<HWND>) as isize);
     }
-    if closed > 0 {
-        tracing::info!(count = closed, "独立 UI ウィンドウを閉じました");
+    found
+}
+
+#[cfg(target_os = "windows")]
+fn focus_existing_window() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+
+    let windows = find_ui_windows();
+    let Some(&hwnd) = windows.first() else {
+        return false;
+    };
+
+    unsafe {
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
     }
+    tracing::info!("既存の独立 UI ウィンドウを最前面へ表示しました");
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn close_windows() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+
+    let windows = find_ui_windows();
+    for &hwnd in &windows {
+        unsafe {
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        }
+    }
+    if !windows.is_empty() {
+        tracing::info!(count = windows.len(), "独立 UI ウィンドウを閉じました");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos(url: &str) -> Result<(), String> {
+    let candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ];
+
+    for path in candidates {
+        if PathBuf::from(path).is_file() {
+            return Command::new(path)
+                .arg(format!("--app={url}"))
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| format!("ブラウザ起動失敗 ({path}): {e}"));
+        }
+    }
+
+    Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("ブラウザ起動失敗: {e}"))
 }
