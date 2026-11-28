@@ -1,12 +1,22 @@
+pub mod notifier;
 pub mod watcher;
 pub mod worker;
 
 use crate::config::Config;
+use crate::model::{BatteryInfo, ConnectionMode};
+use notifier::{send_os_notification, BatteryMonitor};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use tokio::time::{sleep_until, Instant};
+use tokio::sync::mpsc;
+use tokio::time::{interval, sleep_until, Instant, MissedTickBehavior};
 use watcher::{ActiveAppWatcher, AppEvent};
 use worker::DeviceWorkerPool;
+
+struct BatteryPollItem {
+    device_id: &'static str,
+    device_name: &'static str,
+    result: Result<(ConnectionMode, BatteryInfo), String>,
+}
 
 /// 実行ファイル名に対して適用すべき目標プロファイル一覧とルール名を算出する
 fn resolve_target_profiles<'a>(cfg: &'a Config, exe_name: &str) -> (&'a str, BTreeMap<String, u8>) {
@@ -42,7 +52,9 @@ pub async fn run(cfg: Config, dry_run: bool) -> Result<(), String> {
     tracing::info!(
         dry_run,
         debounce_ms = cfg.general.debounce_ms,
-        "ActiveAppWatcher を起動しました（終了: Ctrl+C）"
+        battery_poll_sec = cfg.general.battery_poll_sec,
+        low_battery_threshold = cfg.general.low_battery_threshold,
+        "常駐デーモンを起動しました（終了: Ctrl+C）"
     );
 
     let mut pending: Option<AppEvent> = None;
@@ -52,6 +64,13 @@ pub async fn run(cfg: Config, dry_run: bool) -> Result<(), String> {
     let timer = sleep_until(Instant::now() + Duration::from_secs(86_400));
     tokio::pin!(timer);
     let mut timer_active = false;
+
+    // バッテリー定期監視（起動直後に初回取得し、以降は battery_poll_sec 間隔）
+    let mut battery_interval = interval(Duration::from_secs(cfg.general.battery_poll_sec));
+    battery_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let (battery_tx, mut battery_rx) = mpsc::unbounded_channel::<Vec<BatteryPollItem>>();
+    let mut battery_poll_in_flight = false;
+    let mut battery_monitor = BatteryMonitor::new(cfg.general.low_battery_threshold);
 
     loop {
         tokio::select! {
@@ -109,14 +128,12 @@ pub async fn run(cfg: Config, dry_run: bool) -> Result<(), String> {
                         "プロファイル切替を実行します"
                     );
 
-                    // 1. 全対象デバイスのワーカーへ一斉投入（デバイス単位で並列実行）
                     let mut inflight = Vec::with_capacity(diffs.len());
                     for (dev_id, slot) in diffs {
                         let rx_res = pool.switch_profile(&dev_id, slot);
                         inflight.push((dev_id, slot, rx_res));
                     }
 
-                    // 2. 結果を回収し、成功したデバイスのみ適用済みキャッシュを更新
                     for (dev_id, slot, rx_res) in inflight {
                         match rx_res {
                             Ok(reply_rx) => match reply_rx.await {
@@ -166,6 +183,98 @@ pub async fn run(cfg: Config, dry_run: bool) -> Result<(), String> {
                 }
 
                 last_rule = Some(rule_name.to_string());
+            }
+            _ = battery_interval.tick(), if pool.is_some() && !battery_poll_in_flight => {
+                if let Some(pool) = &pool {
+                    battery_poll_in_flight = true;
+                    let mut inflight = Vec::new();
+                    for &(dev_id, dev_name) in pool.battery_targets() {
+                        match pool.read_battery(dev_id) {
+                            Ok(reply_rx) => inflight.push((dev_id, dev_name, reply_rx)),
+                            Err(e) => {
+                                tracing::error!(device = dev_id, error = %e, "バッテリー取得要求の送信失敗");
+                            }
+                        }
+                    }
+
+                    let tx_done = battery_tx.clone();
+                    tokio::spawn(async move {
+                        let mut results = Vec::with_capacity(inflight.len());
+                        for (device_id, device_name, reply_rx) in inflight {
+                            let result = match reply_rx.await {
+                                Ok(res) => res,
+                                Err(_) => Err("ワーカー応答チャネルが切断されました".to_string()),
+                            };
+                            results.push(BatteryPollItem {
+                                device_id,
+                                device_name,
+                                result,
+                            });
+                        }
+                        let _ = tx_done.send(results);
+                    });
+                }
+            }
+            Some(items) = battery_rx.recv() => {
+                battery_poll_in_flight = false;
+                for item in items {
+                    match item.result {
+                        Ok((mode, info)) => {
+                            let level = info
+                                .percent
+                                .map(|p| format!("{p}%"))
+                                .unwrap_or_else(|| "-".to_string());
+                            let state = info
+                                .charging
+                                .as_ref()
+                                .map(|c| c.to_string())
+                                .unwrap_or_else(|| "-".to_string());
+
+                            tracing::info!(
+                                device = item.device_id,
+                                mode = %mode,
+                                level = %level,
+                                state = %state,
+                                "バッテリー取得"
+                            );
+
+                            if let Some((title, body)) = battery_monitor.record_success(
+                                item.device_id,
+                                item.device_name,
+                                mode,
+                                &info,
+                            ) {
+                                tracing::warn!(
+                                    device = item.device_id,
+                                    level = %level,
+                                    "低バッテリー OS 通知を送信します"
+                                );
+                                tokio::spawn(async move {
+                                    if let Err(e) = send_os_notification(title, body).await {
+                                        tracing::error!(error = %e, "OS 通知送信エラー");
+                                    }
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            if let Some(cached) = battery_monitor.record_failure(item.device_id) {
+                                tracing::warn!(
+                                    device = item.device_id,
+                                    last_percent = ?cached.percent,
+                                    stale = cached.stale,
+                                    error = %err,
+                                    "バッテリー取得失敗（前回値を保持してスキップ）"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    device = item.device_id,
+                                    error = %err,
+                                    "バッテリー取得失敗（未接続またはスリープ）"
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,5 +1,5 @@
 use crate::devices;
-use crate::model::ConnectionMode;
+use crate::model::{BatteryInfo, ConnectionMode};
 use hidapi::HidApi;
 use std::collections::HashMap;
 use std::thread::JoinHandle;
@@ -10,10 +10,14 @@ pub enum WorkerCommand {
         slot: u8,
         reply: oneshot::Sender<Result<String, String>>,
     },
+    ReadBattery {
+        reply: oneshot::Sender<Result<(ConnectionMode, BatteryInfo), String>>,
+    },
 }
 
 pub struct DeviceWorkerPool {
     workers: HashMap<String, mpsc::UnboundedSender<WorkerCommand>>,
+    battery_targets: Vec<(&'static str, &'static str)>,
     handles: Vec<JoinHandle<()>>,
 }
 
@@ -21,10 +25,16 @@ impl DeviceWorkerPool {
     /// 登録済み全デバイス分の直列ワーカーを起動する
     pub fn spawn_all() -> Self {
         let mut workers = HashMap::new();
+        let mut battery_targets = Vec::new();
         let mut handles = Vec::new();
 
         for drv in devices::all_drivers() {
             let device_id = drv.id();
+            let device_name = drv.name();
+            if drv.capabilities().battery {
+                battery_targets.push((device_id, device_name));
+            }
+
             let (tx, mut rx) = mpsc::unbounded_channel::<WorkerCommand>();
 
             let handle = std::thread::Builder::new()
@@ -50,16 +60,16 @@ impl DeviceWorkerPool {
                     tracing::debug!(device = device_id, "デバイスワーカー起動");
 
                     while let Some(cmd) = rx.blocking_recv() {
+                        if let Err(e) = api.refresh_devices() {
+                            tracing::warn!(
+                                device = device_id,
+                                error = %e,
+                                "HID デバイス一覧の再取得に失敗"
+                            );
+                        }
+
                         match cmd {
                             WorkerCommand::SwitchProfile { slot, reply } => {
-                                if let Err(e) = api.refresh_devices() {
-                                    tracing::warn!(
-                                        device = device_id,
-                                        error = %e,
-                                        "HID デバイス一覧の再取得に失敗"
-                                    );
-                                }
-
                                 let presence = drv.probe(&api);
                                 if presence.mode == ConnectionMode::Disconnected {
                                     let _ = reply.send(Err("未接続（または電源オフ）".to_string()));
@@ -69,6 +79,19 @@ impl DeviceWorkerPool {
                                 let res = drv
                                     .switch_profile(&api, slot)
                                     .map(|r| r.message)
+                                    .map_err(|e| e.to_string());
+                                let _ = reply.send(res);
+                            }
+                            WorkerCommand::ReadBattery { reply } => {
+                                let presence = drv.probe(&api);
+                                if presence.mode == ConnectionMode::Disconnected {
+                                    let _ = reply.send(Err("未接続（または電源オフ）".to_string()));
+                                    continue;
+                                }
+
+                                let res = drv
+                                    .read_battery(&api)
+                                    .map(|info| (presence.mode, info))
                                     .map_err(|e| e.to_string());
                                 let _ = reply.send(res);
                             }
@@ -83,7 +106,16 @@ impl DeviceWorkerPool {
             handles.push(handle);
         }
 
-        Self { workers, handles }
+        Self {
+            workers,
+            battery_targets,
+            handles,
+        }
+    }
+
+    /// バッテリー監視対象デバイス (id, name) の一覧を返す
+    pub fn battery_targets(&self) -> &[(&'static str, &'static str)] {
+        &self.battery_targets
     }
 
     /// 指定デバイスのワーカーキューへプロファイル切替コマンドを投入する
@@ -103,6 +135,23 @@ impl DeviceWorkerPool {
             reply: reply_tx,
         })
         .map_err(|_| format!("ワーカー停止済み: {device_id}"))?;
+
+        Ok(reply_rx)
+    }
+
+    /// 指定デバイスのワーカーキューへバッテリー取得コマンドを投入する
+    pub fn read_battery(
+        &self,
+        device_id: &str,
+    ) -> Result<oneshot::Receiver<Result<(ConnectionMode, BatteryInfo), String>>, String> {
+        let tx = self
+            .workers
+            .get(device_id)
+            .ok_or_else(|| format!("ワーカー未登録: {device_id}"))?;
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        tx.send(WorkerCommand::ReadBattery { reply: reply_tx })
+            .map_err(|_| format!("ワーカー停止済み: {device_id}"))?;
 
         Ok(reply_rx)
     }
